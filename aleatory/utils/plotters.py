@@ -56,6 +56,9 @@ def draw_paths(
     upper=None,
     style="seaborn-v0_8-whitegrid",
     colormap="RdYlBu_r",
+    colorspos=None,
+    mode="linear",
+    estimate_quantiles=False,
     xlabel="$t$",
     ylabel="$X(t)$",
     **fig_kw,
@@ -76,6 +79,9 @@ def draw_paths(
             upper=upper,
             style=style,
             colormap=colormap,
+            colorspos=colorspos,
+            mode=mode,
+            estimate_quantiles=estimate_quantiles,
             xlabel=xlabel,
             ylabel=ylabel,
             **fig_kw,
@@ -96,6 +102,7 @@ def draw_paths(
             upper=upper,
             style=style,
             colormap=colormap,
+            mode=mode,
             xlabel=xlabel,
             ylabel=ylabel,
             **fig_kw,
@@ -127,7 +134,9 @@ def draw_paths_horizontal(
     **fig_kw,
 ):
     cm = plt.colormaps[colormap]
-    last_points = [path[-1] for path in paths]
+    # Handle NaN values in paths for robust plotting
+    last_points = [path[~np.isnan(path)][-1] if np.any(np.isnan(path)) else path[-1] for path in paths]
+    mean_points = [np.mean(path[~np.isnan(path)]) if np.any(np.isnan(path)) else np.mean(path) for path in paths]
     n_bins = int(np.sqrt(N))
     col = np.linspace(0, 1, n_bins, endpoint=True)
     customised_plot = xlabel != "$t$" or ylabel != "$X(t)$"
@@ -157,8 +166,10 @@ def draw_paths_horizontal(
             )
             for c, p in zip(col, patches):
                 plt.setp(p, "facecolor", cm(c))
+            # Use mean_points for coloring instead of last_points
+            _, bins = np.histogram(mean_points, n_bins)
             my_bins = pd.cut(
-                last_points, bins=bins, labels=range(len(bins) - 1), include_lowest=True
+                mean_points, bins=bins, labels=range(len(bins) - 1), include_lowest=True
             )
             colors = [col[b] for b in my_bins]
 
@@ -223,7 +234,9 @@ def draw_paths_horizontal(
             if expectations is not None:    
                 ax1.plot(times, expectations, "--", lw=1.75, label=marginal_expectations_label)
             if envelope:
-                ax1.fill_between(times, upper, lower, alpha=0.25, color="silver", label="Envelope")
+                ax1.plot(times, upper, "-", color="silver")
+                ax1.plot(times, lower, "-", color="silver")
+                ax1.fill_between(times, upper, lower, alpha=0.5, color="silver", label="Envelope")
             if expectations is not None or envelope:
                 ax1.legend()
             plt.subplots_adjust(wspace=0.025, hspace=0.025)
@@ -233,9 +246,10 @@ def draw_paths_horizontal(
             if colorspos:
                 colors = [path[colorspos] / np.max(np.abs(path)) for path in paths]
             else:
-                _, bins = np.histogram(last_points, n_bins)
+                # Use mean_points for coloring instead of last_points
+                _, bins = np.histogram(mean_points, n_bins)
                 my_bins = pd.cut(
-                    last_points,
+                    mean_points,
                     bins=bins,
                     labels=range(len(bins) - 1),
                     include_lowest=True,
@@ -260,6 +274,8 @@ def draw_paths_horizontal(
             if expectations is not None:
                 ax1.plot(times, expectations, "--", lw=1.75, label=marginal_expectations_label)
             if envelope:
+                ax1.plot(times, upper, "-", color="silver")
+                ax1.plot(times, lower, "-", color="silver")
                 ax1.fill_between(times, upper, lower, color="silver", alpha=0.25, label="Envelope")
             if expectations is not None or envelope:
                 ax1.legend()
@@ -268,7 +284,7 @@ def draw_paths_horizontal(
             fig.suptitle(suptitle)
 
         if title is None:
-            ax1.set_title("Monte Carlo Simulated Paths $\{{X_t, t \in [t_0, T]\}}$")
+            ax1.set_title(r"Monte Carlo Simulated Paths ${X_t, t \in [t_0, T]}$")
         else:
             ax1.set_title(title)
         ax1.set_xlabel(xlabel)
@@ -294,6 +310,7 @@ def draw_paths_vertical(
     style="seaborn-v0_8-whitegrid",
     colormap="RdYlBu_r",
     mode="linear",
+    estimate_quantiles=False,
     xlabel="$t$",
     ylabel="$X(t)$",
     **fig_kw,
@@ -316,7 +333,9 @@ def draw_paths_vertical(
     with plt.style.context(style):
 
         cm = plt.colormaps[colormap]
-        last_points = [path[-1] for path in paths]
+        # Handle NaN values in paths for robust plotting
+        last_points = [path[~np.isnan(path)][-1] if np.any(np.isnan(path)) else path[-1] for path in paths]
+        mean_points = [np.mean(path[~np.isnan(path)]) if np.any(np.isnan(path)) else np.mean(path) for path in paths]
         n_bins = int(np.sqrt(N))
         col = np.linspace(0, 1, n_bins, endpoint=True)
 
@@ -331,8 +350,9 @@ def draw_paths_vertical(
             )
             for c, p in zip(col, patches):
                 plt.setp(p, "facecolor", cm(c))
+            # Use mean_points for coloring instead of last_points
             my_bins = pd.cut(
-                last_points, bins=bins, labels=range(len(bins) - 1), include_lowest=True
+                mean_points, bins=bins, labels=range(len(bins) - 1), include_lowest=True
             )
             colors = [col[b] for b in my_bins]
 
@@ -357,8 +377,12 @@ def draw_paths_vertical(
             elif marginal and marginalT:
                 marginaldist = marginalT
 
-                lower_val = np.min(last_points)
-                upper_val = np.max(last_points)
+                if estimate_quantiles:
+                    lower_val = np.min(last_points)
+                    upper_val = np.max(last_points)
+                else:
+                    lower_val = marginaldist.ppf(0.001)
+                    upper_val = marginaldist.ppf(0.999)
                 x = np.linspace(lower_val, upper_val, 100)
                 # x = np.linspace(marginaldist.ppf(0.001), marginaldist.ppf(0.999), 100)
                 ax2.plot(
@@ -395,12 +419,15 @@ def draw_paths_vertical(
 
             ax1.plot(times, expectations, "--", lw=1.75, label=marginal_expectations_label)
             if envelope:
-                ax1.fill_between(times, upper, lower, alpha=0.25, color="grey", label="Envelope")
+                ax1.plot(times, upper, "-", color="silver")
+                ax1.plot(times, lower, "-", color="silver")
+                ax1.fill_between(times, upper, lower, alpha=0.5, color="grey", label="Envelope")
 
         else:
-            _, bins = np.histogram(last_points, n_bins)
+            # Use mean_points for coloring instead of last_points
+            _, bins = np.histogram(mean_points, n_bins)
             my_bins = pd.cut(
-                last_points, bins=bins, labels=range(len(bins) - 1), include_lowest=True
+                mean_points, bins=bins, labels=range(len(bins) - 1), include_lowest=True
             )
             colors = [col[b] for b in my_bins]
 
@@ -409,6 +436,8 @@ def draw_paths_vertical(
                 ax1.plot(times, paths[i], "-", color=cm(colors[i]), lw=1.0)
             ax1.plot(times, expectations, "--", lw=1.75, label=marginal_expectations_label)
             if envelope:
+                ax1.plot(times, upper, "-", color="silver")
+                ax1.plot(times, lower, "-", color="silver")
                 ax1.fill_between(times, upper, lower, color="silver", alpha=0.25, label="Envelope")
 
         if suptitle is not None:
@@ -453,14 +482,19 @@ def draw_paths_with_end_point(
 
         fig, ax1 = plt.subplots(**fig_kw)
         for path in paths:
+            # Handle NaN values by using only valid points for color calculation
+            valid_path = path[~np.isnan(path)] if np.any(np.isnan(path)) else path
+            color_value = valid_path[mid] / np.max(np.abs(valid_path)) if len(valid_path) > mid else 0
             ax1.plot(
-                times, path, "-", color=cm(path[mid] / np.max(np.abs(path))), lw=0.75
+                times, path, "-", color=cm(color_value), lw=0.75
             )
         if expectations is not None:
             ax1.plot(times, expectations, "--", lw=1.75, label=marginal_expectations_label)
 
         lower_and_upper_provided = lower is not None and upper is not None
         if envelope and lower_and_upper_provided:
+            ax1.plot(times, upper, "-", color="silver")
+            ax1.plot(times, lower, "-", color="silver")
             ax1.fill_between(times, upper, lower, color="silver", alpha=0.25, label="Envelope")
         if expectations is not None or (envelope and lower_and_upper_provided):
             ax1.legend()
@@ -492,6 +526,7 @@ def draw_poisson_like(
     marginal=True,
     mode="steps",
     colorspos=None,
+    estimate_quantiles=False,
     title=None,
     suptitle=None,
     xlabel="$t$",
@@ -583,11 +618,13 @@ def draw_poisson_like(
             if expectations:
                 ax1.plot(times, expectations, "--", lw=1.75, label=marginal_expectations_label)
             if envelope:
+                ax1.plot(times, upper, "-", color="silver")
+                ax1.plot(times, lower, "-", color="silver")
                 ax1.fill_between(
                     times,
                     upper,
                     lower,
-                    alpha=0.25,
+                    alpha=0.5,
                     color="silver",
                     label="Envelope",
                 )
@@ -617,6 +654,8 @@ def draw_poisson_like(
                 ax1.plot(times, expectations, "--", lw=1.75, label=marginal_expectations_label)
 
             if envelope:
+                ax1.plot(times, upper, "-", color="silver")
+                ax1.plot(times, lower, "-", color="silver")
                 ax1.fill_between(
                     times,
                     upper,
